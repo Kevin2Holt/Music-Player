@@ -7,38 +7,20 @@
 #include <memory>
 #include <mutex>
 
-struct GtkApp {
-	std::unique_ptr<GtkApplication, decltype(&g_object_unref)> app;
-	int status;
+// Forward declarations
+struct GtkApp;
+struct GtkGui;
+struct AudioStream;
+struct Graphics;
+struct Button;
 
-	GtkApp() : app(nullptr, g_object_unref), status(0) {}
-	void init(int argc, char **argv) {
-		app.reset(gtk_application_new("com.Avnior.MusicPlayor", G_APPLICATION_FLAGS_NONE));
-		g_signal_connect(app.get(), "activate", G_CALLBACK(init_gui), nullptr);
-		status = g_application_run(G_APPLICATION(app.get()), argc, argv);
-	}
-	void close() {
-		audio.close();
-	}
-};
+extern GtkApp app;
+extern GtkGui gui;
+extern AudioStream audio;
+extern Graphics graphics;
 
-struct GtkGui {
-	std::unique_ptr<GtkWidget, decltype(&g_object_unref)> window;
-	std::unique_ptr<GtkWidget, decltype(&g_object_unref)> grid;
-
-	GtkGui() : window(nullptr, g_object_unref), grid(nullptr, g_object_unref) {}
-	void init(const std::string& newTitle, int newX, int newY) {
-		window.reset(gtk_application_window_new(G_APPLICATION(app.app.get())));
-		gtk_window_set_title(GTK_WINDOW(window.get()), newTitle.c_str());
-		gtk_window_set_default_size(GTK_WINDOW(window.get()), newX, newY);
-
-		grid.reset(gtk_grid_new());
-		gtk_container_add(GTK_CONTAINER(window.get()), grid.get());
-	}
-	void show() {
-		gtk_widget_show_all(window.get());
-	}
-};
+static void init_gui(GtkApplication* app, gpointer data);
+static void btn_play(GtkWidget* widget, gpointer data);
 
 struct AudioStream {
 	std::string status = "STOP";
@@ -92,6 +74,39 @@ struct AudioStream {
 		while (status == "PLAY") {
 			SDL_Delay(100);
 		}
+	}
+};
+
+struct GtkApp {
+	std::unique_ptr<GtkApplication, decltype(&g_object_unref)> app;
+	int status;
+
+	GtkApp() : app(nullptr, g_object_unref), status(0) {}
+	void init(int argc, char **argv) {
+		app.reset(gtk_application_new("com.Avnior.MusicPlayor", G_APPLICATION_FLAGS_NONE));
+		g_signal_connect(app.get(), "activate", G_CALLBACK(init_gui), nullptr);
+		status = g_application_run(G_APPLICATION(app.get()), argc, argv);
+	}
+	void close() {
+		audio.close();
+	}
+};
+
+struct GtkGui {
+	std::unique_ptr<GtkWidget, decltype(&g_object_unref)> window;
+	std::unique_ptr<GtkWidget, decltype(&g_object_unref)> grid;
+
+	GtkGui() : window(nullptr, g_object_unref), grid(nullptr, g_object_unref) {}
+	void init(const std::string& newTitle, int newX, int newY) {
+		window.reset(gtk_application_window_new(GTK_APPLICATION(app.app.get())));
+		gtk_window_set_title(GTK_WINDOW(window.get()), newTitle.c_str());
+		gtk_window_set_default_size(GTK_WINDOW(window.get()), newX, newY);
+
+		grid.reset(gtk_grid_new());
+		gtk_container_add(GTK_CONTAINER(window.get()), grid.get());
+	}
+	void show() {
+		gtk_widget_show_all(window.get());
 	}
 };
 
