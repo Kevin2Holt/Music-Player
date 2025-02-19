@@ -5,44 +5,48 @@
 #include <thread>
 #include <atomic>
 #include <memory>
+#include <mutex>
 
 struct GtkApp {
-	std::unique_ptr<GtkApplication> app;
+	std::unique_ptr<GtkApplication, decltype(&g_object_unref)> app;
 	int status;
 
-	void init() {
-		app = std::make_unique<GtkApplication>(gtk_application_new("com.Avnior.MusicPlayor", G_APPLICATION_FLAGS_NONE));
-		g_signal_connect(app, "activate", G_CALLBACK(init_gui), NULL);
-		status= g_application_run(G_APPLICATION(app), argc, argv);
+	GtkApp() : app(nullptr, g_object_unref), status(0) {}
+	void init(int argc, char **argv) {
+		app.reset(gtk_application_new("com.Avnior.MusicPlayor", G_APPLICATION_FLAGS_NONE));
+		g_signal_connect(app.get(), "activate", G_CALLBACK(init_gui), nullptr);
+		status = g_application_run(G_APPLICATION(app.get()), argc, argv);
 	}
 	void close() {
-		g_object_unref(app);
 		audio.close();
 	}
-}
+};
 
 struct GtkGui {
-	std::unique_ptr<GtkWidget> window;
-	std::unique_ptr<GtkWidget> grid;
+	std::unique_ptr<GtkWidget, decltype(&g_object_unref)> window;
+	std::unique_ptr<GtkWidget, decltype(&g_object_unref)> grid;
 
-	void init(string newTitle, int newX, int newY) {
-		window = std::make_unique<GtkWidget>(gtk_application_window_new(app.app));
-		gtk_window_set_title(window, newTitle);
-		gtk_window_set_default_size(window, newX, newY);
+	GtkGui() : window(nullptr, g_object_unref), grid(nullptr, g_object_unref) {}
+	void init(const std::string& newTitle, int newX, int newY) {
+		window.reset(gtk_application_window_new(G_APPLICATION(app.app.get())));
+		gtk_window_set_title(GTK_WINDOW(window.get()), newTitle.c_str());
+		gtk_window_set_default_size(GTK_WINDOW(window.get()), newX, newY);
 
-		grid = std::make_unique<GtkWidget>(gtk_grid_new());
-		gtk_container_add(window, grid);
+		grid.reset(gtk_grid_new());
+		gtk_container_add(GTK_CONTAINER(window.get()), grid.get());
 	}
 	void show() {
-		gtk_widget_show_all(window);
+		gtk_widget_show_all(window.get());
 	}
-}
+};
 
 struct AudioStream {
-	string status = "STOP";
-	string curPath;
-	std::unique_ptr<Mix_Music> audio;
+	std::string status = "STOP";
+	std::string curPath;
+	std::unique_ptr<Mix_Music, decltype(&Mix_FreeMusic)> audio;
+	std::mutex mtx;
 
+	AudioStream() : audio(nullptr, Mix_FreeMusic) {}
 	void init() {
 		if (SDL_Init(SDL_INIT_AUDIO) < 0) {
 			std::cerr << "SDL could not initialize! SDL_Error: " << SDL_GetError() << std::endl;
@@ -55,78 +59,90 @@ struct AudioStream {
 		Mix_Quit();
 		SDL_Quit();
 	}
-	void play(string audioPath) {
-		std::thread(set_audio, audioPath).detach();
+	void play(const std::string& audioPath) {
+		std::thread(&AudioStream::set_audio, this, audioPath).detach();
 	}
 	void play() {
+		std::lock_guard<std::mutex> lock(mtx);
 		if (status == "PAUSE") {
 			Mix_ResumeMusic();
 			status = "PLAY";
 		}
 	}
 	void pause() {
+		std::lock_guard<std::mutex> lock(mtx);
 		if (status == "PLAY") {
 			Mix_PauseMusic();
 			status = "PAUSE";
 		}
 	}
-	void set_audio(string path) {
-		audio = std::make_unique<Mix_Music>(Mix_LoadMUS(path));
+	void set_audio(const std::string& path) {
+		std::lock_guard<std::mutex> lock(mtx);
+		audio.reset(Mix_LoadMUS(path.c_str()));
 		if (!audio) {
 			std::cerr << "Failed to load audio! SDL_mixer Error: " << Mix_GetError() << std::endl;
 			return;
 		}
-		if (Mix_PlayMusic(audio, 1) == -1) {
+		if (Mix_PlayMusic(audio.get(), 1) == -1) {
 			std::cerr << "Failed to play music! SDL_mixer Error: " << Mix_GetError() << std::endl;
-			Mix_FreeMusic(music);
 			return;
 		}
 		status = "PLAY";
 
-		while(status == "PLAY") {
+		while (status == "PLAY") {
 			SDL_Delay(100);
 		}
 	}
-}
+};
 
 struct Graphics {
 	std::shared_ptr<GtkWidget> play;
 	std::shared_ptr<GtkWidget> pause;
 
 	void init() {
-		play	= std::make_shared<GtkWidget>(gtk_image_new_from_file("img/play.png"));
-		pause	= std::make_shared<GtkWidget>(gtk_image_new_from_file("img/pause.png"));
+		play = std::shared_ptr<GtkWidget>(gtk_image_new_from_file("img/play.png"), g_object_unref);
+		pause = std::shared_ptr<GtkWidget>(gtk_image_new_from_file("img/pause.png"), g_object_unref);
 	}
-}
+};
 
 struct Button {
-	std::unique_ptr<GtkWidget> btn = std::make_unique<GtkWidget>(gtk_button_new());
+	std::unique_ptr<GtkWidget, decltype(&g_object_unref)> btn;
 
-	void set_img(GtkWidget& img) {
-		gtk_button_set_image(btn, img);
+	Button() : btn(gtk_button_new(), g_object_unref) {}
+	void set_img(GtkWidget* img) {
+		gtk_button_set_image(GTK_BUTTON(btn.get()), img);
 	}
 	void set_onClick(void (*callback)(GtkWidget*, gpointer)) {
-		g_signal_connect(btn, "clicked", callback, NULL);
+		g_signal_connect(btn.get(), "clicked", G_CALLBACK(callback), nullptr);
 	}
 	void set_gridPos(int col, int row, int width = 1, int height = 1) {
-		gtk_grid_attach(gui.grid, btn, col, row, width, height);
+		gtk_grid_attach(GTK_GRID(gui.grid.get()), btn.get(), col, row, width, height);
 	}
-}
+};
 
 GtkApp app;
 GtkGui gui;
 AudioStream audio;
+Graphics graphics;
 
-
+static void btn_play(GtkWidget* widget, gpointer data) {
+	audio.play("/home/kevin2holt/Music/01-overture.mp3");
+}
 
 static void init_gui(GtkApplication* app, gpointer data) {
 	gui.init("Music Player", 400, 400);
+
+	Button playBtn;
+	playBtn.set_img(graphics.play.get());
+	playBtn.set_onClick(btn_play);
+	playBtn.set_gridPos(0,0);
+
 	gui.show();
 }
 
 int main(int argc, char **argv) {
 	audio.init();
-	app.init();
+	app.init(argc, argv);
 	app.close();
 	return app.status;
 }
