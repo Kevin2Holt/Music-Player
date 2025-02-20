@@ -6,7 +6,6 @@
 #include <atomic>
 #include <memory>
 #include <mutex>
-#include <string>
 
 // Forward declarations
 struct GtkApp;
@@ -20,8 +19,6 @@ extern GtkApp app;
 extern GtkGui gui;
 extern AudioStream audio;
 extern Graphics graphics;
-extern Button playBtn;
-extern Label text;
 
 static void init_gui(GtkApplication* app, gpointer data);
 static void btn_play(GtkWidget* widget, gpointer data);
@@ -106,7 +103,7 @@ struct GtkGui {
 		window.reset(gtk_application_window_new(GTK_APPLICATION(app.app.get())));
 		gtk_window_set_title(GTK_WINDOW(window.get()), newTitle.c_str());
 		gtk_window_set_default_size(GTK_WINDOW(window.get()), newX, newY);
-		g_signal_connect(window.get(), "destroy", G_CALLBACK(gtk_main_quit), nullptr);
+		g_signal_connect(window, "destroy", G_CALLBACK(gtk_main_quit), nullptr);
 
 		grid.reset(gtk_grid_new());
 		gtk_container_add(GTK_CONTAINER(window.get()), grid.get());
@@ -140,26 +137,23 @@ struct Button {
 		gtk_grid_attach(GTK_GRID(gui.grid.get()), btn.get(), col, row, width, height);
 	}
 };
-
 struct Label {
 	std::unique_ptr<GtkWidget, decltype(&g_object_unref)> lbl;
 
 	Label() : lbl(gtk_label_new(""), g_object_unref) {}
-	Label(const std::string& newLbl) : lbl(gtk_label_new(newLbl.c_str()), g_object_unref) {}
-	void set_text(const std::string& newLbl) {
-		gtk_label_set_text(GTK_LABEL(lbl.get()), newLbl.c_str());
+	Label(string newLbl) : lbl(gtk_label_new(newLbl), g_object_unref) {}
+	void set_text(string newLbl) {
+		gtk_label_set_text(lbl,newLbl);
 	}
 	void set_gridPos(int col, int row, int width = 1, int height = 1) {
 		gtk_grid_attach(GTK_GRID(gui.grid.get()), lbl.get(), col, row, width, height);
 	}
-};
+}
 
 GtkApp app;
 GtkGui gui;
 AudioStream audio;
 Graphics graphics;
-Button playBtn;
-Label text;
 
 static void btn_play(GtkWidget* widget, gpointer data) {
 	if (audio.status == "STOP") {
@@ -179,12 +173,15 @@ static void btn_pause(GtkWidget* widget, gpointer data) {
 static void init_gui(GtkApplication* app, gpointer data) {
 	gui.init("Music Player", 400, 400);
 
+	Button playBtn;
 	playBtn.set_img(graphics.play.get());
 	playBtn.set_onClick(btn_play);
 	playBtn.set_gridPos(0,0);
 
-	text.set_text("Status: " + audio.status);
+	Label text;
+	text.set_text(audio.status);
 	text.set_gridPos(0,1);
+
 
 	gui.show();
 }
